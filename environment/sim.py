@@ -1,0 +1,235 @@
+"""Episode orchestration: owns the ground truth, builds the WorldState
+snapshot handed to the planner each tick, executes the chosen waypoint
+through the shared controller + Locomotion, scripts the enemies, checks
+collision/success/timeout, and records metrics. None of this is the
+planner's concern.
+"""
+
+import math
+import random
+import time
+
+import pygame
+
+from environment.ball import Ball, required_kick_power
+from environment.controller import waypoint_to_command
+from environment.enemy import Enemy
+from environment.field import Field
+from environment.locomotion import Locomotion
+from environment.metrics import EpisodeResult
+from environment.planner_base import BasePlanner
+from environment.robot import RobotBody
+from environment.state import EnemyState, WorldState
+
+DT = 1.0 / 60.0
+ROBOT_RADIUS = 14.0
+ENEMY_RADIUS = 14.0
+COLLISION_MARGIN = 2.0
+SUCCESS_RADIUS = 10.0
+TARGET_STANDOFF = 40.0          # R: how far behind the ball the robot must stand
+ROBOT_MAX_SPEED = 220.0
+MAX_EPISODE_TIME = 30.0
+
+
+def compute_target_point(ball_x, ball_y, goal_x, goal_y, standoff=TARGET_STANDOFF):
+    dx, dy = ball_x - goal_x, ball_y - goal_y
+    length = math.hypot(dx, dy) or 1e-6
+    ux, uy = dx / length, dy / length
+    return ball_x + ux * standoff, ball_y + uy * standoff
+
+
+class SimulationEnv:
+    def __init__(self, planner: BasePlanner, render=False):
+        self.planner = planner
+        self.render = render
+        self.field = Field()
+        self.ball = Ball()
+        self.robot = RobotBody(0, 0, radius=ROBOT_RADIUS, color=(30, 80, 230))
+        self.locomotion = Locomotion(max_linear_vel=ROBOT_MAX_SPEED)
+        self.enemies: list[Enemy] = []
+
+        self.screen = None
+        if self.render:
+            pygame.init()
+            self.screen = pygame.display.set_mode(
+                (int(self.field.length), int(self.field.width))
+            )
+            pygame.display.set_caption("Path Planning Sim")
+            self.clock = pygame.time.Clock()
+            self.font = pygame.font.SysFont("monospace", 16)
+
+    def reset(self, seed: int):
+        rng = random.Random(seed)
+
+        self.ball.x = rng.uniform(self.field.length * 0.35, self.field.length * 0.75)
+        self.ball.y = rng.uniform(self.field.width * 0.25, self.field.width * 0.75)
+        self.ball.vx = self.ball.vy = 0.0
+        self.ball.kicked = False
+
+        self.target_x, self.target_y = compute_target_point(
+            self.ball.x, self.ball.y, *self.field.goal_center
+        )
+
+        self.robot.x = rng.uniform(40, self.field.length * 0.25)
+        self.robot.y = rng.uniform(40, self.field.width - 40)
+        self.robot.theta = 0.0
+        self.locomotion = Locomotion(max_linear_vel=ROBOT_MAX_SPEED)
+
+        corridor_dx = self.target_x - self.robot.x
+        corridor_dy = self.target_y - self.robot.y
+        corridor_len = math.hypot(corridor_dx, corridor_dy) or 1e-6
+        perp_x = -corridor_dy / corridor_len
+        perp_y = corridor_dx / corridor_len
+
+        self.enemies = []
+        for frac in (0.3, 0.5, 0.7):
+            base_x = self.robot.x + corridor_dx * frac
+            base_y = self.robot.y + corridor_dy * frac
+            amplitude = rng.uniform(25, 45)
+            period = rng.uniform(4.0, 7.0)
+            phase = rng.uniform(0, 2 * math.pi)
+            self.enemies.append(
+                Enemy(base_x, base_y, perp_x, perp_y, amplitude, period, phase)
+            )
+
+        self.time = 0.0
+        self.path_length = 0.0
+        self.plan_calls = 0
+        self.plan_time_total = 0.0
+        self.plan_time_max = 0.0
+        self.min_enemy_distance = float("inf")
+        self.straight_line_distance = math.hypot(
+            self.target_x - self.robot.x, self.target_y - self.robot.y
+        )
+
+        self.planner.reset(self._build_state())
+
+    def _build_state(self) -> WorldState:
+        return WorldState(
+            time=self.time,
+            dt=DT,
+            robot_x=self.robot.x,
+            robot_y=self.robot.y,
+            robot_theta=self.robot.theta,
+            robot_vx=self.robot.vx,
+            robot_vy=self.robot.vy,
+            robot_radius=ROBOT_RADIUS,
+            ball_x=self.ball.x,
+            ball_y=self.ball.y,
+            target_x=self.target_x,
+            target_y=self.target_y,
+            enemies=[
+                EnemyState(e.body.x, e.body.y, e.body.vx, e.body.vy, ENEMY_RADIUS)
+                for e in self.enemies
+            ],
+            field_width=self.field.width,
+            field_length=self.field.length,
+        )
+
+    def _step_physics(self, waypoint):
+        now = self.time
+        prev_x, prev_y = self.robot.x, self.robot.y
+
+        vx, vy, omega = waypoint_to_command(self.robot, waypoint[0], waypoint[1], ROBOT_MAX_SPEED)
+        self.locomotion.set_command(vx, vy, omega, now)
+        rvx, rvy, romega = self.locomotion.step(DT, now)
+        self.robot.integrate(rvx, rvy, romega, DT)
+
+        self.path_length += math.hypot(self.robot.x - prev_x, self.robot.y - prev_y)
+
+        for enemy in self.enemies:
+            enemy.step(DT, now)
+
+        if self.ball.kicked:
+            self.ball.update(DT)
+
+        self.time += DT
+
+    def _check_termination(self):
+        for enemy in self.enemies:
+            d = self.robot.distance_to(enemy.body.x, enemy.body.y)
+            clearance = d - (ROBOT_RADIUS + ENEMY_RADIUS)
+            self.min_enemy_distance = min(self.min_enemy_distance, clearance)
+            if clearance < -COLLISION_MARGIN:
+                return "collision"
+
+        if self.robot.distance_to(self.target_x, self.target_y) < SUCCESS_RADIUS:
+            return "success"
+
+        if self.time >= MAX_EPISODE_TIME:
+            return "timeout"
+
+        return None
+
+    def _fire_kick(self):
+        gx, gy = self.field.goal_center
+        dist = math.hypot(gx - self.ball.x, gy - self.ball.y)
+        power = required_kick_power(dist, DT, self.ball.friction)
+        self.ball.kick(gx, gy, power)
+
+    def run_episode(self, seed: int, planner_name: str) -> EpisodeResult:
+        self.reset(seed)
+        outcome = None
+
+        while outcome is None:
+            state = self._build_state()
+
+            t0 = time.perf_counter()
+            waypoint = self.planner.plan(state)
+            elapsed = time.perf_counter() - t0
+            self.plan_calls += 1
+            self.plan_time_total += elapsed
+            self.plan_time_max = max(self.plan_time_max, elapsed)
+
+            self._step_physics(waypoint)
+            outcome = self._check_termination()
+
+            if self.render:
+                self._draw()
+                if outcome is None:
+                    self.clock.tick(60)
+
+        if outcome == "success":
+            self._fire_kick()
+            if self.render:
+                for _ in range(90):
+                    self.ball.update(DT)
+                    self._draw()
+                    self.clock.tick(60)
+                    if self.field.ball_crossed_goal_line(self.ball.x, self.ball.y):
+                        break
+
+        return EpisodeResult(
+            planner_name=planner_name,
+            seed=seed,
+            success=(outcome == "success"),
+            fail_reason=None if outcome == "success" else outcome,
+            elapsed_time=self.time,
+            path_length=self.path_length,
+            straight_line_distance=self.straight_line_distance,
+            plan_calls=self.plan_calls,
+            plan_time_total=self.plan_time_total,
+            plan_time_max=self.plan_time_max,
+            min_enemy_distance=self.min_enemy_distance,
+        )
+
+    def _draw(self):
+        self.screen.fill((0, 0, 0))
+        self.field.draw(self.screen)
+        pygame.draw.circle(
+            self.screen, (255, 230, 0), (int(self.target_x), int(self.target_y)), 6, 2
+        )
+        self.ball.draw(self.screen)
+        for enemy in self.enemies:
+            enemy.body.draw(self.screen)
+        self.robot.draw(self.screen)
+
+        label = self.font.render(f"t={self.time:4.1f}s  plans={self.plan_calls}", True, (255, 255, 255))
+        self.screen.blit(label, (10, 10))
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                raise SystemExit
+
+        pygame.display.flip()
