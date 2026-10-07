@@ -4,7 +4,7 @@ import pygame
 
 
 class Ball:
-    def __init__(self, x=450.0, y=300.0, radius=10.0, friction=0.98):
+    def __init__(self, x=450.0, y=300.0, radius=10.0, friction=0.98, sprite=None):
         self.x = x
         self.y = y
         self.vx = 0.0
@@ -13,6 +13,7 @@ class Ball:
         self.friction = friction
         self.radius = radius
         self.kicked = False
+        self.sprite = sprite
 
     def kick(self, target_x, target_y, power):
         self.theta = math.atan2(target_y - self.y, target_x - self.x)
@@ -33,6 +34,11 @@ class Ball:
     def draw(self, screen, scale=1.0, offset_x=0, offset_y=0):
         bx = int(self.x * scale) + offset_x
         by = int(self.y * scale) + offset_y
+
+        if self.sprite is not None:
+            screen.blit(self.sprite, self.sprite.get_rect(center=(bx, by)))
+            return
+
         pygame.draw.circle(screen, (255, 49, 8), (bx, by), max(1, int(self.radius * scale)))
 
 

@@ -11,6 +11,7 @@ import time
 
 import pygame
 
+from environment.assets import load_sprite
 from environment.ball import Ball, required_kick_power
 from environment.controller import waypoint_to_command
 from environment.enemy import Enemy
@@ -49,6 +50,7 @@ class SimulationEnv:
         self.enemies: list[Enemy] = []
 
         self.screen = None
+        self.enemy_sprite = None
         if self.render:
             pygame.init()
             self.screen = pygame.display.set_mode(
@@ -57,6 +59,10 @@ class SimulationEnv:
             pygame.display.set_caption("Path Planning Sim")
             self.clock = pygame.time.Clock()
             self.font = pygame.font.SysFont("monospace", 16)
+
+            self.robot.sprite = load_sprite("team.png", int(ROBOT_RADIUS * 2))
+            self.enemy_sprite = load_sprite("enemy.png", int(ENEMY_RADIUS * 2))
+            self.ball.sprite = load_sprite("fifa-ball.png", int(self.ball.radius * 2))
 
     def reset(self, seed: int):
         rng = random.Random(seed)
@@ -77,19 +83,27 @@ class SimulationEnv:
 
         corridor_dx = self.target_x - self.robot.x
         corridor_dy = self.target_y - self.robot.y
-        corridor_len = math.hypot(corridor_dx, corridor_dy) or 1e-6
-        perp_x = -corridor_dy / corridor_len
-        perp_y = corridor_dx / corridor_len
+        patrol_margin = ENEMY_RADIUS + 16.0
+        field_y_min, field_y_max = patrol_margin, self.field.width - patrol_margin
 
         self.enemies = []
         for frac in (0.3, 0.5, 0.7):
-            base_x = self.robot.x + corridor_dx * frac
-            base_y = self.robot.y + corridor_dy * frac
-            amplitude = rng.uniform(25, 45)
-            period = rng.uniform(4.0, 7.0)
-            phase = rng.uniform(0, 2 * math.pi)
+            # Patrol band is centered on where the robot's direct line to its
+            # target actually crosses this x -- not the whole field height --
+            # so the enemy regularly passes through the straight-line path
+            # instead of only rarely being nearby.
+            anchor_x = self.robot.x + corridor_dx * frac
+            crossing_y = self.robot.y + corridor_dy * frac
+            band = rng.uniform(60.0, 90.0)
+            y_min = max(field_y_min, crossing_y - band)
+            y_max = min(field_y_max, crossing_y + band)
+            if y_min >= y_max:
+                y_min, y_max = field_y_min, field_y_max
+
+            start_y = rng.uniform(y_min, y_max)
+            start_direction = rng.choice((-1, 1))
             self.enemies.append(
-                Enemy(base_x, base_y, perp_x, perp_y, amplitude, period, phase)
+                Enemy(anchor_x, y_min, y_max, start_y, start_direction, sprite=self.enemy_sprite)
             )
 
         self.time = 0.0

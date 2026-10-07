@@ -14,7 +14,7 @@ class RobotBody:
     is purely cosmetic -- nothing downstream depends on robot.theta.)
     """
 
-    def __init__(self, x, y, theta=0.0, radius=14.0, color=(0, 0, 255)):
+    def __init__(self, x, y, theta=0.0, radius=14.0, color=(0, 0, 255), sprite=None):
         self.x = x
         self.y = y
         self.theta = theta
@@ -23,6 +23,7 @@ class RobotBody:
         self.omega = 0.0
         self.radius = radius
         self.color = color
+        self.sprite = sprite
 
     def integrate(self, vx, vy, omega, dt):
         self.vx, self.vy, self.omega = vx, vy, omega
@@ -36,6 +37,12 @@ class RobotBody:
     def draw(self, screen, scale=1.0, offset_x=0, offset_y=0):
         px = int(self.x * scale) + offset_x
         py = int(self.y * scale) + offset_y
+
+        if self.sprite is not None:
+            rotated = pygame.transform.rotate(self.sprite, -math.degrees(self.theta))
+            screen.blit(rotated, rotated.get_rect(center=(px, py)))
+            return
+
         r = max(1, int(self.radius * scale))
         pygame.draw.circle(screen, self.color, (px, py), r)
         hx = px + r * math.cos(self.theta)

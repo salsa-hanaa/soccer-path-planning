@@ -81,11 +81,11 @@ Run it with `python main.py --planner myalgo --render`.
   toward whatever point you return, through the same acceleration/step-delay
   model for every planner, so comparisons stay apples-to-apples.
 - Enemies are scripted obstacles, not opponents — they never chase the
-  ball or react to your live position. Each loiters (slower than you)
-  around a fixed point along the straight line from the robot's *starting*
-  position to `target_x/y` (frozen at episode reset, so it's identical for
-  every planner on the same seed), with a slow side-to-side wobble that's
-  purely a function of elapsed time. Predicting their motion is optional;
+  ball or react to your live position. Each patrols up and down (bouncing
+  between the top and bottom of the field, slower than you) at a fixed x
+  position derived from the straight line between the robot's *starting*
+  position and `target_x/y` (frozen at episode reset, so it's identical for
+  every planner on the same seed). Predicting their motion is optional;
   only useful if your algorithm plans more than one step ahead.
 
 ## Scenario rules
