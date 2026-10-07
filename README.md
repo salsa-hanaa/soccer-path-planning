@@ -1,0 +1,111 @@
+# Path Planning — Soccer Sim
+
+2D soccer-sim environment for comparing path planning algorithms. One robot
+(ours) must reach a positioning point beside the ball without ever colliding
+with 3 slower, scripted enemy robots whose only job is to block the way.
+
+This repo is split so that **algorithm authors never touch physics,
+rendering, or scoring** — they only implement one function.
+
+## Running it
+
+```bash
+pip install -r requirements.txt
+python main.py --planner naive --episodes 10 --render
+python main.py --planner naive --episodes 200 --save-json results_naive.json   # headless batch
+```
+
+## Project layout
+
+```
+environment/      # physics, rendering, scoring — do not need to be touched
+  state.py         # WorldState / EnemyState: the only thing a planner sees
+  planner_base.py  # BasePlanner: the only thing a planner must implement
+  sim.py           # episode loop, collision/success/timeout checks, metrics
+  ...
+planners/
+  example_planner.py   # NaiveDirectPlanner — copy this as your starting point
+  __init__.py           # REGISTRY: add your planner here with a short name
+main.py            # CLI entry point
+```
+
+## The contract: what you actually need to write
+
+Copy `planners/example_planner.py`, rename the class, and implement one
+method:
+
+```python
+from environment.planner_base import BasePlanner
+from environment.state import WorldState
+
+class MyPlanner(BasePlanner):
+    name = "myalgo"
+
+    def reset(self, state: WorldState) -> None:
+        # optional: called once at the start of each episode
+        ...
+
+    def plan(self, state: WorldState) -> tuple[float, float]:
+        # required: return the (x, y) point the robot should head toward next
+        ...
+```
+
+Then register it in `planners/__init__.py`:
+
+```python
+from planners.my_planner import MyPlanner
+REGISTRY = {"naive": NaiveDirectPlanner, "myalgo": MyPlanner}
+```
+
+Run it with `python main.py --planner myalgo --render`.
+
+### `WorldState` fields you get every call
+
+| field | meaning |
+|---|---|
+| `time`, `dt` | simulated time elapsed, and the tick length (1/60 s) |
+| `robot_x/y/theta/vx/vy`, `robot_radius` | our robot, ground truth |
+| `ball_x/y` | ball position (stationary until the final scripted kick) |
+| `target_x/y` | the point the robot must reach — see "scenario rules" below |
+| `enemies` | list of `EnemyState(x, y, vx, vy, radius)`, length 3 |
+| `field_width`, `field_length` | playable area, (0,0) to (field_length, field_width) |
+
+### Rules of the contract
+
+- `plan()` is called **every tick**. You decide internally whether to
+  recompute from scratch or reuse a cached plan — that choice is part of
+  your algorithm and exactly what gets compared (see metrics below).
+- You must **never cause a collision** with any enemy — that is scored as a
+  hard failure, not a soft penalty.
+- You do not control the robot's velocity directly. The environment steers
+  toward whatever point you return, through the same acceleration/step-delay
+  model for every planner, so comparisons stay apples-to-apples.
+- Enemies are scripted obstacles, not opponents — they never chase the
+  ball or react to your live position. Each loiters (slower than you)
+  around a fixed point along the straight line from the robot's *starting*
+  position to `target_x/y` (frozen at episode reset, so it's identical for
+  every planner on the same seed), with a slow side-to-side wobble that's
+  purely a function of elapsed time. Predicting their motion is optional;
+  only useful if your algorithm plans more than one step ahead.
+
+## Scenario rules
+
+- `target_x/y` is placed on the line between the goal and the ball, on the
+  far side of the ball from the goal — reaching it means the robot ends up
+  lined up to shoot. Kicking itself is **not** part of what's scored: once
+  a planner reaches the target, the environment auto-kicks the ball
+  straight into the goal (guaranteed, see `environment/ball.py:required_kick_power`).
+- Episode ends in exactly one of three ways: **success** (reached target),
+  **collision** (hit an enemy — hard fail), or **timeout** (30s).
+
+## Metrics collected per episode (`environment/metrics.py`)
+
+- success / collision / timeout rate
+- path efficiency (actual path length ÷ straight-line distance)
+- time to target
+- planning computation time per call (avg + max)
+- minimum clearance ever kept from an enemy
+
+Run `--episodes 30+` with a fixed `--seed-start` across all three planners
+to get comparable numbers for the report.
+# soccer-path-planning
