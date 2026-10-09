@@ -21,18 +21,35 @@ class Field:
         GOAL_LINE = (255, 60, 60)
         POST = (250, 250, 250)
         NET = (255, 255, 255, 60)
+        LINE_W = max(2, int(4 * scale))
 
         w = int(self.length * scale)
         h = int(self.width * scale)
 
         pygame.draw.rect(screen, GREEN, pygame.Rect(offset_x, offset_y, w, h))
-        pygame.draw.rect(screen, WHITE, pygame.Rect(offset_x, offset_y, w, h), 4)
+        pygame.draw.rect(screen, WHITE, pygame.Rect(offset_x, offset_y, w, h), LINE_W)
         pygame.draw.line(
             screen, WHITE,
             (offset_x + w // 2, offset_y),
             (offset_x + w // 2, offset_y + h),
-            2,
+            LINE_W,
         )
+        pygame.draw.circle(
+            screen, WHITE, (offset_x + w // 2, offset_y + h // 2), int(75 * scale), LINE_W
+        )
+
+        # Penalty areas + spots on both ends, for a proper-pitch look (only
+        # the right side is actually the scoring goal in this scenario).
+        area_w, area_h = int(100 * scale), int(500 * scale)
+        area_y = offset_y + (h - area_h) // 2
+        pygame.draw.rect(screen, WHITE, pygame.Rect(offset_x, area_y, area_w, area_h), LINE_W)
+        pygame.draw.rect(
+            screen, WHITE,
+            pygame.Rect(offset_x + w - area_w, area_y, area_w, area_h),
+            LINE_W,
+        )
+        pygame.draw.circle(screen, WHITE, (offset_x + int(210 * scale), offset_y + h // 2), 8)
+        pygame.draw.circle(screen, WHITE, (offset_x + int(690 * scale), offset_y + h // 2), 8)
 
         gx = offset_x + int(self.goal_x * scale)
         gt = offset_y + int(self.goal_top * scale)

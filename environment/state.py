@@ -29,10 +29,17 @@ class WorldState:
     robot_vy: float
     robot_radius: float
 
+    # "know_ball": ball_x/y and target_x/y are always populated -- only the
+    #   enemy list is FOV-gated. Use this for the informed algorithms
+    #   (Greedy, A*, GA) that need a known target to compute a heuristic.
+    # "blind_ball": ball_x/y and target_x/y are None until the ball enters
+    #   the FOV cone -- a genuine search problem.
+    mode: str
+
     # None until the ball has entered the robot's FOV at least once this
-    # episode -- the robot starts not knowing where the ball is and must
-    # search for it. Once discovered, these stay populated for the rest of
-    # the episode (the ball doesn't move during the approach).
+    # episode (always populated in "know_ball" mode). Once discovered,
+    # these stay populated for the rest of the episode (the ball doesn't
+    # move during the approach).
     ball_x: float | None
     ball_y: float | None
 

@@ -9,6 +9,11 @@ from planners import REGISTRY
 def main():
     parser = argparse.ArgumentParser(description="Run the soccer path-planning sim.")
     parser.add_argument("--planner", default="naive", choices=sorted(REGISTRY.keys()))
+    parser.add_argument(
+        "--mode", default="know_ball", choices=("know_ball", "blind_ball"),
+        help="know_ball: ball/target always known (for Greedy/A*/GA). "
+             "blind_ball: ball unknown until it enters FOV (search problem).",
+    )
     parser.add_argument("--episodes", type=int, default=1)
     parser.add_argument("--seed-start", type=int, default=0)
     parser.add_argument("--render", action="store_true", help="show the pygame window")
@@ -18,6 +23,7 @@ def main():
     planner_cls = REGISTRY[args.planner]
     planner = planner_cls()
     env = SimulationEnv(planner, render=args.render)
+    env.set_mode(args.mode)
     log = MetricsLog()
 
     for i in range(args.episodes):
