@@ -29,7 +29,9 @@ COLLISION_MARGIN = 2.0
 SUCCESS_RADIUS = 10.0
 TARGET_STANDOFF = 40.0          # R: how far behind the ball the robot must stand
 ROBOT_MAX_SPEED = 220.0
-MAX_EPISODE_TIME = 30.0
+MAX_EPISODE_TIME = 45.0         # longer than before: a search phase needs room
+FOV_RANGE = 220.0
+FOV_ANGLE_DEG = 100.0
 
 
 def compute_target_point(ball_x, ball_y, goal_x, goal_y, standoff=TARGET_STANDOFF):
@@ -59,6 +61,7 @@ class SimulationEnv:
             pygame.display.set_caption("Path Planning Sim")
             self.clock = pygame.time.Clock()
             self.font = pygame.font.SysFont("monospace", 16)
+            self.banner_font = pygame.font.SysFont("monospace", 72, bold=True)
 
             self.robot.sprite = load_sprite("team.png", int(ROBOT_RADIUS * 2))
             self.enemy_sprite = load_sprite("enemy.png", int(ENEMY_RADIUS * 2))
@@ -78,8 +81,9 @@ class SimulationEnv:
 
         self.robot.x = rng.uniform(40, self.field.length * 0.25)
         self.robot.y = rng.uniform(40, self.field.width - 40)
-        self.robot.theta = 0.0
+        self.robot.theta = rng.uniform(0, 2 * math.pi)
         self.locomotion = Locomotion(max_linear_vel=ROBOT_MAX_SPEED)
+        self.ball_known = False
 
         corridor_dx = self.target_x - self.robot.x
         corridor_dy = self.target_y - self.robot.y
@@ -118,7 +122,25 @@ class SimulationEnv:
 
         self.planner.reset(self._build_state())
 
+    def _in_fov(self, x, y):
+        dx, dy = x - self.robot.x, y - self.robot.y
+        dist = math.hypot(dx, dy)
+        if dist > FOV_RANGE:
+            return False
+        angle_to = math.atan2(dy, dx)
+        angle_diff = abs((angle_to - self.robot.theta + math.pi) % (2 * math.pi) - math.pi)
+        return angle_diff <= math.radians(FOV_ANGLE_DEG) / 2
+
     def _build_state(self) -> WorldState:
+        if not self.ball_known and self._in_fov(self.ball.x, self.ball.y):
+            self.ball_known = True
+
+        visible_enemies = [
+            EnemyState(e.body.x, e.body.y, e.body.vx, e.body.vy, ENEMY_RADIUS)
+            for e in self.enemies
+            if self._in_fov(e.body.x, e.body.y)
+        ]
+
         return WorldState(
             time=self.time,
             dt=DT,
@@ -128,14 +150,13 @@ class SimulationEnv:
             robot_vx=self.robot.vx,
             robot_vy=self.robot.vy,
             robot_radius=ROBOT_RADIUS,
-            ball_x=self.ball.x,
-            ball_y=self.ball.y,
-            target_x=self.target_x,
-            target_y=self.target_y,
-            enemies=[
-                EnemyState(e.body.x, e.body.y, e.body.vx, e.body.vy, ENEMY_RADIUS)
-                for e in self.enemies
-            ],
+            ball_x=self.ball.x if self.ball_known else None,
+            ball_y=self.ball.y if self.ball_known else None,
+            target_x=self.target_x if self.ball_known else None,
+            target_y=self.target_y if self.ball_known else None,
+            enemies=visible_enemies,
+            fov_range=FOV_RANGE,
+            fov_angle_deg=FOV_ANGLE_DEG,
             field_width=self.field.width,
             field_length=self.field.length,
         )
@@ -148,6 +169,9 @@ class SimulationEnv:
         self.locomotion.set_command(vx, vy, omega, now)
         rvx, rvy, romega = self.locomotion.step(DT, now)
         self.robot.integrate(rvx, rvy, romega, DT)
+
+        self.robot.x = max(ROBOT_RADIUS, min(self.field.length - ROBOT_RADIUS, self.robot.x))
+        self.robot.y = max(ROBOT_RADIUS, min(self.field.width - ROBOT_RADIUS, self.robot.y))
 
         self.path_length += math.hypot(self.robot.x - prev_x, self.robot.y - prev_y)
 
@@ -212,6 +236,9 @@ class SimulationEnv:
                     self.clock.tick(60)
                     if self.field.ball_crossed_goal_line(self.ball.x, self.ball.y):
                         break
+                self._show_banner("GOAL!", (80, 220, 90))
+        elif self.render:
+            self._show_banner("FAILED", (220, 60, 60))
 
         return EpisodeResult(
             planner_name=planner_name,
@@ -230,15 +257,21 @@ class SimulationEnv:
     def _draw(self):
         self.screen.fill((0, 0, 0))
         self.field.draw(self.screen)
-        pygame.draw.circle(
-            self.screen, (255, 230, 0), (int(self.target_x), int(self.target_y)), 6, 2
-        )
+        self._draw_fov()
+
+        if self.ball_known:
+            pygame.draw.circle(
+                self.screen, (255, 230, 0), (int(self.target_x), int(self.target_y)), 6, 2
+            )
         self.ball.draw(self.screen)
         for enemy in self.enemies:
             enemy.body.draw(self.screen)
         self.robot.draw(self.screen)
 
-        label = self.font.render(f"t={self.time:4.1f}s  plans={self.plan_calls}", True, (255, 255, 255))
+        status = "ball FOUND" if self.ball_known else "searching..."
+        label = self.font.render(
+            f"t={self.time:4.1f}s  plans={self.plan_calls}  {status}", True, (255, 255, 255)
+        )
         self.screen.blit(label, (10, 10))
 
         for event in pygame.event.get():
@@ -247,3 +280,39 @@ class SimulationEnv:
                 raise SystemExit
 
         pygame.display.flip()
+
+    def _show_banner(self, text, color, seconds=1.2):
+        overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+
+        label = self.banner_font.render(text, True, color)
+        rect = label.get_rect(center=(self.screen.get_width() // 2, self.screen.get_height() // 2))
+
+        outline = self.banner_font.render(text, True, (0, 0, 0))
+        for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2)):
+            overlay.blit(outline, outline.get_rect(center=(rect.centerx + dx, rect.centery + dy)))
+        overlay.blit(label, rect)
+
+        self.screen.blit(overlay, (0, 0))
+        pygame.display.flip()
+
+        for _ in range(int(seconds * 60)):
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    raise SystemExit
+            self.clock.tick(60)
+
+    def _draw_fov(self):
+        half = math.radians(FOV_ANGLE_DEG) / 2
+        left = self.robot.theta - half
+        right = self.robot.theta + half
+        p0 = (self.robot.x, self.robot.y)
+        p1 = (self.robot.x + math.cos(left) * FOV_RANGE, self.robot.y + math.sin(left) * FOV_RANGE)
+        p2 = (self.robot.x + math.cos(right) * FOV_RANGE, self.robot.y + math.sin(right) * FOV_RANGE)
+
+        cone = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+        pygame.draw.polygon(cone, (255, 255, 120, 40), [p0, p1, p2])
+        pygame.draw.line(cone, (255, 255, 120, 120), p0, p1, 1)
+        pygame.draw.line(cone, (255, 255, 120, 120), p0, p2, 1)
+        self.screen.blit(cone, (0, 0))

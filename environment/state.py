@@ -24,18 +24,31 @@ class WorldState:
 
     robot_x: float
     robot_y: float
-    robot_theta: float
+    robot_theta: float         # also the facing direction the FOV cone points in
     robot_vx: float
     robot_vy: float
     robot_radius: float
 
-    ball_x: float
-    ball_y: float
+    # None until the ball has entered the robot's FOV at least once this
+    # episode -- the robot starts not knowing where the ball is and must
+    # search for it. Once discovered, these stay populated for the rest of
+    # the episode (the ball doesn't move during the approach).
+    ball_x: float | None
+    ball_y: float | None
 
-    target_x: float            # titik positioning yang harus dicapai robot
-    target_y: float
+    # The positioning point behind the ball, lined up with the goal. Also
+    # None until the ball has been discovered -- there's nothing to head
+    # toward yet.
+    target_x: float | None
+    target_y: float | None
 
+    # Only the enemies currently inside the FOV cone -- there may be 0 to 3
+    # of them. An enemy outside this list can still physically collide with
+    # the robot; not seeing it doesn't mean it isn't there.
     enemies: list[EnemyState] = field(default_factory=list)
+
+    fov_range: float = 220.0
+    fov_angle_deg: float = 100.0
 
     field_width: float = 600.0
     field_length: float = 900.0
