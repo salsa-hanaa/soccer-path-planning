@@ -26,15 +26,17 @@ DT = 1.0 / 60.0
 ROBOT_RADIUS = 18.0
 ENEMY_RADIUS = 18.0
 COLLISION_MARGIN = 2.0
-SUCCESS_RADIUS = 10.0
-TARGET_STANDOFF = 40.0          # R: how far behind the ball the robot must stand
 ROBOT_MAX_SPEED = 220.0
 MAX_EPISODE_TIME = 45.0         # longer than before: a search phase needs room
 FOV_RANGE = 220.0
 FOV_ANGLE_DEG = 100.0
+KICK_FACING_TOLERANCE_DEG = 30.0  # how square-on to the goal the robot must be to kick
 
 
-def compute_target_point(ball_x, ball_y, goal_x, goal_y, standoff=TARGET_STANDOFF):
+def compute_target_point(ball_x, ball_y, goal_x, goal_y, standoff):
+    """Aim point behind the ball, on the far side from the goal, at exactly
+    the distance where the robot's body touches the ball -- not an
+    arbitrary standoff gap."""
     dx, dy = ball_x - goal_x, ball_y - goal_y
     length = math.hypot(dx, dy) or 1e-6
     ux, uy = dx / length, dy / length
@@ -94,7 +96,8 @@ class SimulationEnv:
         self.ball.kicked = False
 
         self.target_x, self.target_y = compute_target_point(
-            self.ball.x, self.ball.y, *self.field.goal_center
+            self.ball.x, self.ball.y, *self.field.goal_center,
+            standoff=ROBOT_RADIUS + self.ball.radius,
         )
 
         if robot_pos is not None:
@@ -155,7 +158,8 @@ class SimulationEnv:
         self.ball.x = max(0.0, min(self.field.length, x))
         self.ball.y = max(0.0, min(self.field.width, y))
         self.target_x, self.target_y = compute_target_point(
-            self.ball.x, self.ball.y, *self.field.goal_center
+            self.ball.x, self.ball.y, *self.field.goal_center,
+            standoff=ROBOT_RADIUS + self.ball.radius,
         )
         self.straight_line_distance = math.hypot(
             self.target_x - self.robot.x, self.target_y - self.robot.y
@@ -184,6 +188,18 @@ class SimulationEnv:
         angle_to = math.atan2(dy, dx)
         angle_diff = abs((angle_to - self.robot.theta + math.pi) % (2 * math.pi) - math.pi)
         return angle_diff <= math.radians(FOV_ANGLE_DEG) / 2
+
+    def _touching_ball(self):
+        return self.robot.distance_to(self.ball.x, self.ball.y) <= ROBOT_RADIUS + self.ball.radius
+
+    def _facing_goal(self):
+        """True once the goal is inside the robot's forward FOV cone --
+        range doesn't matter here, only heading, since the goal is always
+        "known" (unlike the ball/enemies, which are range-gated)."""
+        gx, gy = self.field.goal_center
+        angle_to = math.atan2(gy - self.robot.y, gx - self.robot.x)
+        angle_diff = abs((angle_to - self.robot.theta + math.pi) % (2 * math.pi) - math.pi)
+        return angle_diff <= math.radians(KICK_FACING_TOLERANCE_DEG)
 
     def _build_state(self) -> WorldState:
         if not self.ball_known and self._in_fov(self.ball.x, self.ball.y):
@@ -246,7 +262,7 @@ class SimulationEnv:
             if clearance < -COLLISION_MARGIN:
                 return "collision"
 
-        if self.robot.distance_to(self.target_x, self.target_y) < SUCCESS_RADIUS:
+        if self._touching_ball() and self._facing_goal():
             return "success"
 
         if self.time >= MAX_EPISODE_TIME:

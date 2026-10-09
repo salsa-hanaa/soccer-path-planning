@@ -147,13 +147,18 @@ nothing about the planner interface changes.
   ball is**. It must search using its FOV cone (`fov_range`, `fov_angle_deg`,
   centered on `robot_theta`) until the ball enters it.
 - Once discovered, `target_x/y` is placed on the line between the goal and
-  the ball, on the far side of the ball from the goal — reaching it means
-  the robot ends up lined up to shoot. Kicking itself is **not** part of
-  what's scored: once a planner reaches the target, the environment
-  auto-kicks the ball straight into the goal (guaranteed, see
+  the ball, on the far side of the ball from the goal, at the exact distance
+  where the robot's body touches the ball (no artificial standoff gap) —
+  reaching it means the robot ends up touching the ball, lined up to shoot.
+- A kick only fires once **both** conditions hold: the robot is actually
+  touching the ball, and the goal is inside the robot's FOV cone (it's
+  facing the goal, within `KICK_FACING_TOLERANCE_DEG`). Kicking itself is
+  **not** part of what's scored: once both conditions are met, the
+  environment auto-kicks the ball straight into the goal (guaranteed, see
   `environment/ball.py:required_kick_power`).
-- Episode ends in exactly one of three ways: **success** (reached target),
-  **collision** (hit an enemy, seen or not — hard fail), or **timeout** (45s).
+- Episode ends in exactly one of three ways: **success** (touched the ball
+  while facing the goal), **collision** (hit an enemy, seen or not — hard
+  fail), or **timeout** (45s).
 
 ## Metrics collected per episode (`environment/metrics.py`)
 
