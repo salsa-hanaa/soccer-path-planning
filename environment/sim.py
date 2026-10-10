@@ -202,14 +202,18 @@ class SimulationEnv:
         return angle_diff <= math.radians(KICK_FACING_TOLERANCE_DEG)
 
     def _build_state(self) -> WorldState:
-        if not self.ball_known and self._in_fov(self.ball.x, self.ball.y):
-            self.ball_known = True
-
-        visible_enemies = [
+        # di _build_state()
+        if self.mode == "know_ball":
+            visible_enemies = [
             EnemyState(e.body.x, e.body.y, e.body.vx, e.body.vy, ENEMY_RADIUS)
             for e in self.enemies
+            ]
+        else:
+            visible_enemies = [
+                EnemyState(e.body.x, e.body.y, e.body.vx, e.body.vy, ENEMY_RADIUS)
+            for e in self.enemies
             if self._in_fov(e.body.x, e.body.y)
-        ]
+            ]
 
         return WorldState(
             time=self.time,
