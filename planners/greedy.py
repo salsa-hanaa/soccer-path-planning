@@ -72,7 +72,7 @@ class GreedyPlanner(BasePlanner):
 
         # The path always ends exactly at the target, so when it is used up we are there -> aim at the ball to face the goal.
         if not self._path:
-            return (state.target_x, state.target_y)
+            return (state.ball_x, state.ball_y)
         return self._path[0]
 
     # Enemy memory and risk zones
