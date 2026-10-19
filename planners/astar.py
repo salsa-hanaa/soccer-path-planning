@@ -1,34 +1,46 @@
 """A* minimalis untuk soccer robot.
 
 f(n) = g(n) + h(n)
-  g(n) = jarak tempuh + penalti enemy (kedekatan + arah gerak enemy)
+  g(n) = jarak tempuh + penalti enemy (kedekatan)
   h(n) = jarak sel ke target (heuristik octile)
 
 Obstacle: setiap sel yang terlalu dekat dengan enemy diberi biaya tambahan,
 bukan diblokir mati -- jadi A* tidak pernah buntu.
+
+Fase akhir: saat robot sudah dekat target (titik di belakang bola), A*
+berhenti menghitung. Robot masuk mode "final approach": berputar di tempat
+sampai menghadap gawang, lalu maju sedikit ke bola untuk memicu tendangan.
 """
 
 import heapq
 import math
+
 from environment.planner_base import BasePlanner
 from environment.state import WorldState
 
+# --- grid & replanning ---------------------------------------------
 CELL = 30.0                     # ukuran sel (px)
-SAFE_RADIUS = 45.0              # radius bahaya di luar radius fisik
-CLOSE_PENALTY = 400.0           # penalti maksimum karena kedekatan
-DIRECTION_PENALTY = 3.0         # penalti tambahan karena enemy mendekat
-REPLAN_EVERY = 10                # replan tiap N tick
-WAYPOINT_TOL = CELL * 0.5
+REPLAN_EVERY = 10               # replan tiap N tick
+WAYPOINT_TOL = CELL * 0.5       # toleransi waypoint dianggap sampai
 
-# --- layer penalti -------------------------------------------------
-# makin dekat, makin mahal, dengan lompatan besar di "inti" bahaya
-CORE_RADIUS = 40.0        # inti: sangat mahal, hampir terlarang
-CORE_PENALTY = 500.0     # biaya datar di dalam inti
-NEAR_RADIUS = 70.0        # zona dekat: cukup mahal
-NEAR_PENALTY = 100.0      # biaya di tepi zona dekat
-FAR_RADIUS = 110.0        # zona jauh: sedikit mahal, biar A* "menghormati"
-FAR_PENALTY = 10.0       # biaya di tepi zona jauh
+# --- layer penalti enemy -------------------------------------------
+CORE_RADIUS = 40.0              # inti: sangat mahal, hampir terlarang
+CORE_PENALTY = 500.0            # biaya datar di dalam inti
+NEAR_RADIUS = 70.0              # zona dekat: cukup mahal
+NEAR_PENALTY = 100.0            # biaya di tepi zona dekat
+FAR_RADIUS = 110.0              # zona jauh: sedikit mahal
+FAR_PENALTY = 10.0              # biaya di tepi zona jauh
 # -------------------------------------------------------------------
+
+# --- final approach: turn to face goal before kicking --------------
+FINAL_APPROACH_DIST = 50.0      # di bawah ini masuk fase "menghadap gawang"
+TURN_STEP = 3.0                 # jarak waypoint saat berputar (px)
+FACE_GOAL_TOL_DEG = 15.0        # toleransi sudut menghadap gawang (derajat)
+PUSH_PAST_BALL = 10.0           # dorong sedikit melewati bola (px)
+GOAL_X = 900.0                  # koordinat gawang (dari field.py)
+GOAL_Y = 300.0                  # koordinat gawang (dari field.py)
+# -------------------------------------------------------------------
+
 
 class AStarPlanner(BasePlanner):
     name = "astar"
@@ -39,6 +51,9 @@ class AStarPlanner(BasePlanner):
         self.cols = 30
         self.rows = 20
 
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
     def plan(self, state: WorldState) -> tuple[float, float]:
         self.cols = max(1, int(state.field_length / CELL))
         self.rows = max(1, int(state.field_width / CELL))
@@ -48,16 +63,55 @@ class AStarPlanner(BasePlanner):
             return (state.robot_x + 60 * math.cos(state.robot_theta),
                     state.robot_y + 60 * math.sin(state.robot_theta))
 
-        # replan berkala atau kalau path kosong
+        robot = (state.robot_x, state.robot_y)
+        target = (state.target_x, state.target_y)
+
+        # --- FASE AKHIR: sudah dekat target -> putar menghadap gawang ---
+        if self._dist(robot, target) < FINAL_APPROACH_DIST:
+            return self._face_goal(state)
+
+        # --- FASE NORMAL: A* ke target ---
         if self.tick % REPLAN_EVERY == 0 or not self.path:
             self.path = self._astar(state)
         self.tick += 1
 
         # buang waypoint yang sudah dilewati
-        while self.path and self._dist((state.robot_x, state.robot_y), self.path[0]) < WAYPOINT_TOL:
+        while self.path and self._dist(robot, self.path[0]) < WAYPOINT_TOL:
             self.path.pop(0)
 
-        return self.path[0] if self.path else (state.target_x, state.target_y)
+        return self.path[0] if self.path else target
+
+    # ------------------------------------------------------------------
+    # Final approach: turn in place, then push toward ball
+    # ------------------------------------------------------------------
+    def _face_goal(self, state: WorldState) -> tuple[float, float]:
+        """Saat robot sudah dekat target, putar di tempat sampai menghadap
+        gawang. Kalau sudah lurus, maju ke bola untuk memicu tendangan."""
+        gx, gy = GOAL_X, GOAL_Y
+        angle_to_goal = math.atan2(gy - state.robot_y, gx - state.robot_x)
+
+        err = self._angle_diff(state.robot_theta, angle_to_goal)
+
+        if abs(err) < math.radians(FACE_GOAL_TOL_DEG):
+            # Sudah menghadap gawang -> maju ke bola
+            bx = state.ball_x if state.ball_x is not None else state.target_x
+            by = state.ball_y if state.ball_y is not None else state.target_y
+            dx = bx - state.robot_x
+            dy = by - state.robot_y
+            d = math.hypot(dx, dy) or 1.0
+            # Dorong sedikit melewati bola agar _touching_ball() true
+            return (bx + PUSH_PAST_BALL * dx / d,
+                    by + PUSH_PAST_BALL * dy / d)
+
+        # Belum lurus -> kembalikan titik 3 px ke arah gawang.
+        # Controller akan memutar robot karena selisih sudut besar.
+        return (state.robot_x + TURN_STEP * math.cos(angle_to_goal),
+                state.robot_y + TURN_STEP * math.sin(angle_to_goal))
+
+    @staticmethod
+    def _angle_diff(a, b):
+        """Selisih sudut a - b, hasil di (-pi, pi]."""
+        return (a - b + math.pi) % (2 * math.pi) - math.pi
 
     # ------------------------------------------------------------------
     # A* inti
@@ -107,18 +161,15 @@ class AStarPlanner(BasePlanner):
         return CELL * (max(dx, dy) + (math.sqrt(2) - 1) * min(dx, dy))
 
     def _enemy_cost(self, cell, state):
-        """Biaya bertingkat: makin dekat enemy, makin mahal, dengan lompatan
-        besar di inti zona bahaya. Plus bonus kalau enemy mendekat."""
+        """Biaya bertingkat: makin dekat enemy, makin mahal."""
         cx, cy = self._to_world(cell)
         total = 0.0
-
 
         for e in state.enemies:
             dx, dy = cx - e.x, cy - e.y
             dist = math.hypot(dx, dy)
             touch = e.radius + state.robot_radius
 
-            # --- biaya bertingkat berdasarkan jarak ---
             if dist < touch + CORE_RADIUS:
                 total += CORE_PENALTY
             elif dist < touch + NEAR_RADIUS:
