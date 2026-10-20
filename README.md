@@ -1,24 +1,23 @@
-# Path Planning — Soccer Sim
+# PBESim: Pygame Sim Comparing Path-Planning Algorithms for Obstacle-Avoiding Robot Navigation
 
+**Description:**
 2D soccer-sim environment for comparing path planning algorithms (Greedy,
 A*, GA). Our robot must reach a positioning point beside the ball without
 ever colliding with 3 slower, scripted enemy robots whose only job is to
 block the way. An enemy outside the robot's FOV can still physically
 collide with it; not seeing it doesn't mean it isn't there.
 
-Two modes, switchable per run (see below):
+Two modes, switchable per run:
 - **`know_ball`** (default for the batch runner): the ball/target position
-  is always known — matches an informed search algorithm that needs a
-  target to compute a heuristic (Greedy/A*/GA all need this). Only the
+  is always known. Only the
   enemies stay FOV-gated.
 - **`blind_ball`**: the ball is *not* known until it enters the robot's FOV
-  cone — a genuine search/exploration problem, for whoever on the team
-  wants to explore that instead.
+  cone.
 
 This repo is split so that **algorithm authors never touch physics,
-rendering, or scoring** — they only implement one function.
+rendering, or scoring**, but instead they only implement one function.
 
-## Running it
+## How to Run
 
 ```bash
 pip install -r requirements.txt
@@ -93,9 +92,8 @@ Run it with `python main.py --planner myalgo --render`.
 
 ### Rules of the contract
 
-- `plan()` is called **every tick**. You decide internally whether to
-  recompute from scratch or reuse a cached plan — that choice is part of
-  your algorithm and exactly what gets compared (see metrics below).
+- `plan()` is called **every tick**. You decide internally whether to recompute from scratch or reuse a cached plan — that choice is part of your algorithm and exactly what gets compared (see metrics below).
+
 - In `blind_ball` mode, until `ball_x` is no longer `None`, your job is
   **search**: decide where to head to sweep the FOV cone over unexplored
   ground. `BasePlanner` instances persist across calls (and `reset()` fires
@@ -116,6 +114,7 @@ Run it with `python main.py --planner myalgo --render`.
   identical for every planner on the same seed regardless of whether/when
   that planner personally discovers the ball. Predicting their motion is
   optional; only useful if your algorithm plans more than one step ahead.
+</p>
 
 ## Interactive demo (`interactive.py`)
 
