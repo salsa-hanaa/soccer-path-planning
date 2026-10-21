@@ -85,8 +85,8 @@ Run it with `python main.py --planner myalgo --render`.
 | `robot_x/y/theta/vx/vy`, `robot_radius` | our robot, ground truth. `robot_theta` is also the direction the FOV cone points in |
 | `mode` | `"know_ball"` or `"blind_ball"`. Read this if your planner wants to behave differently per mode, though usually checking `ball_x is None` is enough |
 | `ball_x/y` | In `know_ball` mode: always populated. In `blind_ball` mode: **`None` until the ball has entered the FOV cone at least once this episode**, then stays populated for the rest of the episode |
-| `target_x/y` | Same availability as `ball_x/y` — the point the robot must reach (see "scenario rules") |
-| `enemies` | list of `EnemyState(x, y, vx, vy, radius)` for **only the enemies currently inside the FOV cone** — 0 to 3 of them, in *either* mode. One outside this list can still collide with you |
+| `target_x/y` | Same availability as `ball_x/y`, the point the robot must reach (see "scenario rules") |
+| `enemies` | list of `EnemyState(x, y, vx, vy, radius)` for **only the enemies currently inside the FOV cone**, 0 to 3 of them, in *either* mode. One outside this list can still collide with you |
 | `fov_range`, `fov_angle_deg` | your own sensing radius and cone angle (centered on `robot_theta`) |
 | `field_width`, `field_length` | playable area, (0,0) to (field_length, field_width) |
 
@@ -98,7 +98,7 @@ Run it with `python main.py --planner myalgo --render`.
   **search**: decide where to head to sweep the FOV cone over unexplored
   ground. `BasePlanner` instances persist across calls (and `reset()` fires
   once per episode), so it's natural to track your own "where have I
-  already looked" state internally — the environment doesn't hand you an
+  already looked" state internally, the environment doesn't hand you an
   exploration map. In `know_ball` mode `ball_x` is never `None`, so this
   branch never triggers.
 - You must **never cause a collision** with any enemy, seen or unseen, that is scored as a hard failure, not a soft penalty.
@@ -121,7 +121,7 @@ A side-panel GUI next to the field (pygame-native widgets, no extra GUI
 toolkit) for exploring a planner's behavior live:
 
 - **Mode button:** flips between `Know Ball` / `Blind Ball`. Only works
-  while paused (or after the episode has ended) — clicking it mid-run shows
+  while paused (or after the episode has ended), clicking it mid-run shows
   an alert instead, since swapping the ball-visibility rule out from under
   a planner that's actively running doesn't mean anything. After switching,
   click **Restart** to actually re-run the episode in the new mode.
