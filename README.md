@@ -1,4 +1,21 @@
+<div align="center">
+  
 # PBESim: Pygame Sim Comparing Path-Planning Algorithms for Obstacle-Avoiding Robot Navigation
+|Nama | NRP |
+| :---: | :---: |
+|Dimas Maulana Putra| 5025251108 |
+|Moh Zidan Ilmi A.| 5025251116 |
+|Salsabila Hana Adniah| 5025251191 |
+|M. Fawwas Al Haqqy A. P.| 5025251086 |
+|Galih Arsandy Tawakal| 5025251074 |
+  
+</div>
+
+##
+
+<img width="2306" height="1245" alt="interactive" src="https://github.com/user-attachments/assets/91d0a36c-9793-4e58-9589-c51268e5490b" />
+
+##
 
 **Description:**
 2D soccer-sim environment for comparing path planning algorithms (Greedy,
