@@ -83,7 +83,7 @@ Run it with `python main.py --planner myalgo --render`.
 |---|---|
 | `time`, `dt` | simulated time elapsed, and the tick length (1/60 s) |
 | `robot_x/y/theta/vx/vy`, `robot_radius` | our robot, ground truth. `robot_theta` is also the direction the FOV cone points in |
-| `mode` | `"know_ball"` or `"blind_ball"` — read this if your planner wants to behave differently per mode, though usually checking `ball_x is None` is enough |
+| `mode` | `"know_ball"` or `"blind_ball"`. Read this if your planner wants to behave differently per mode, though usually checking `ball_x is None` is enough |
 | `ball_x/y` | In `know_ball` mode: always populated. In `blind_ball` mode: **`None` until the ball has entered the FOV cone at least once this episode**, then stays populated for the rest of the episode |
 | `target_x/y` | Same availability as `ball_x/y` — the point the robot must reach (see "scenario rules") |
 | `enemies` | list of `EnemyState(x, y, vx, vy, radius)` for **only the enemies currently inside the FOV cone** — 0 to 3 of them, in *either* mode. One outside this list can still collide with you |
@@ -92,7 +92,7 @@ Run it with `python main.py --planner myalgo --render`.
 
 ### Rules of the contract
 
-- `plan()` is called **every tick**. You decide internally whether to recompute from scratch or reuse a cached plan — that choice is part of your algorithm and exactly what gets compared (see metrics below).
+- `plan()` is called **every tick**. You decide internally whether to recompute from scratch or reuse a cached plan.
 
 - In `blind_ball` mode, until `ball_x` is no longer `None`, your job is
   **search**: decide where to head to sweep the FOV cone over unexplored
@@ -101,16 +101,15 @@ Run it with `python main.py --planner myalgo --render`.
   already looked" state internally — the environment doesn't hand you an
   exploration map. In `know_ball` mode `ball_x` is never `None`, so this
   branch never triggers.
-- You must **never cause a collision** with any enemy, seen or unseen —
-  that is scored as a hard failure, not a soft penalty.
+- You must **never cause a collision** with any enemy, seen or unseen, that is scored as a hard failure, not a soft penalty.
 - You do not control the robot's velocity directly. The environment steers
   toward whatever point you return, through the same acceleration/step-delay
   model for every planner, so comparisons stay apples-to-apples.
-- Enemies are scripted obstacles, not opponents — they never chase the
+- Enemies are scripted obstacles, not opponents. They never chase the
   ball or react to your live position. Each patrols up and down (bouncing
   between a top and bottom bound, slower than you) at a fixed x position
   derived from the straight line between the robot's *starting* position
-  and the (ground-truth) target — frozen at episode reset, so it's
+  and the (ground-truth) target, frozen at episode reset, so it's
   identical for every planner on the same seed regardless of whether/when
   that planner personally discovers the ball. Predicting their motion is
   optional; only useful if your algorithm plans more than one step ahead.
@@ -121,18 +120,18 @@ Run it with `python main.py --planner myalgo --render`.
 A side-panel GUI next to the field (pygame-native widgets, no extra GUI
 toolkit) for exploring a planner's behavior live:
 
-- **Mode button** — flips between `Know Ball` / `Blind Ball`. Only works
+- **Mode button:** flips between `Know Ball` / `Blind Ball`. Only works
   while paused (or after the episode has ended) — clicking it mid-run shows
   an alert instead, since swapping the ball-visibility rule out from under
   a planner that's actively running doesn't mean anything. After switching,
   click **Restart** to actually re-run the episode in the new mode.
-- **Restart** — re-runs the same seed from scratch (also applies any mode
+- **Restart:** re-runs the same seed from scratch (also applies any mode
   change staged while paused).
-- **Pause / Resume** — freezes the simulation; widgets keep responding.
-- **Ball X/Y** + **Apply Ball Pos** — teleport the ball to any coordinate to
+- **Pause / Resume:** freezes the simulation; widgets keep responding.
+- **Ball X/Y** + **Apply Ball Pos:** teleport the ball to any coordinate to
   set up a specific scenario. Only editable/applicable while paused or
   after the episode has ended, for the same reason as the mode button.
-- **Robot X/Y** + **Apply Robot Pos** — same, for our robot.
+- **Robot X/Y** + **Apply Robot Pos:**  same, for our robot.
 - Live readout: current state (`SEARCHING` / `APPROACHING` / `SUCCESS` /
   `COLLISION` / `TIMEOUT`), the robot's live coordinates, and the
   (ground-truth) distance to the ball.
@@ -147,8 +146,7 @@ nothing about the planner interface changes.
   centered on `robot_theta`) until the ball enters it.
 - Once discovered, `target_x/y` is placed on the line between the goal and
   the ball, on the far side of the ball from the goal, at the exact distance
-  where the robot's body touches the ball (no artificial standoff gap) —
-  reaching it means the robot ends up touching the ball, lined up to shoot.
+  where the robot's body touches the ball (no artificial standoff gap).
 - A kick only fires once **both** conditions hold: the robot is actually
   touching the ball, and the goal is inside the robot's FOV cone (it's
   facing the goal, within `KICK_FACING_TOLERANCE_DEG`). Kicking itself is
@@ -156,8 +154,7 @@ nothing about the planner interface changes.
   environment auto-kicks the ball straight into the goal (guaranteed, see
   `environment/ball.py:required_kick_power`).
 - Episode ends in exactly one of three ways: **success** (touched the ball
-  while facing the goal), **collision** (hit an enemy, seen or not — hard
-  fail), or **timeout** (45s).
+  while facing the goal), **collision** (hit an enemy), or **timeout** (45s).
 
 ## Metrics collected per episode (`environment/metrics.py`)
 
